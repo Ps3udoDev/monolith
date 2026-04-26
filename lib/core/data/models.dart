@@ -61,3 +61,21 @@ class Artist {
     required this.cover,
   });
 }
+
+class RemoteSearchResult {
+  final String id;
+  final String title;
+  final String artist;
+  final Duration? duration;
+  final String? thumbnailUrl;
+  final String sourceUrl;
+
+  const RemoteSearchResult({
+    required this.id,
+    required this.title,
+    required this.artist,
+    required this.sourceUrl,
+    this.duration,
+    this.thumbnailUrl,
+  });
+}

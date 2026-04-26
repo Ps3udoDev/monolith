@@ -35,8 +35,7 @@ class PlayerState extends ChangeNotifier {
     _restartTickerIfNeeded();
   }
 
-  Track get currentTrack =>
-      lookupTrack(currentTrackId) ?? kLibrary.first;
+  Track get currentTrack => lookupTrack(currentTrackId) ?? kLibrary.first;
 
   double get progress =>
       duration > 0 ? (position / duration).clamp(0.0, 1.0) : 0.0;
@@ -83,6 +82,22 @@ class PlayerState extends ChangeNotifier {
     } else {
       favorites.add(id);
     }
+    notifyListeners();
+  }
+
+  void addRecentSearch(String query) {
+    final normalized = query.trim();
+    if (normalized.isEmpty) return;
+
+    final updated = [
+      normalized,
+      ...recentSearches.where(
+        (item) => item.toLowerCase() != normalized.toLowerCase(),
+      ),
+    ].take(5).toList();
+
+    if (listEquals(updated, recentSearches)) return;
+    recentSearches = updated;
     notifyListeners();
   }
 
