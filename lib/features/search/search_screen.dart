@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/data/models.dart';
 import '../../core/integrations/youtube/youtube_download_options_service.dart';
+import '../../core/integrations/youtube/youtube_link_resolver_service.dart';
 import '../../core/integrations/youtube/youtube_search_service.dart';
 import '../../core/state/player_state.dart';
 import '../../core/theme/tokens.dart';
@@ -14,11 +15,13 @@ import '../../shared/widgets/loading_bars.dart';
 class SearchScreen extends StatefulWidget {
   final SearchSongsService? searchService;
   final DownloadOptionsService? downloadOptionsService;
+  final LinkResolverService? linkResolverService;
 
   const SearchScreen({
     super.key,
     this.searchService,
     this.downloadOptionsService,
+    this.linkResolverService,
   });
 
   @override
@@ -33,6 +36,13 @@ class _SearchScreenState extends State<SearchScreen> {
       widget.searchService ?? const YoutubeSearchService();
   late final DownloadOptionsService _downloadOptionsService =
       widget.downloadOptionsService ?? const YoutubeDownloadOptionsService();
+  late final LinkResolverService _linkResolverService =
+      widget.linkResolverService ?? const YoutubeLinkResolverService();
+
+  static final RegExp _urlPattern = RegExp(
+    r'^(https?:\/\/)?(www\.|m\.|music\.)?(youtube\.com|youtu\.be)(\/|$)',
+    caseSensitive: false,
+  );
 
   String _query = '';
   bool _focused = false;
@@ -41,6 +51,12 @@ class _SearchScreenState extends State<SearchScreen> {
   String? _errorMessage;
   String? _lastSubmittedQuery;
   bool _hasSubmitted = false;
+
+  bool _resolvingLink = false;
+  RemoteSearchResult? _resolvedResult;
+  LinkResolutionExceptionKind? _resolvedLinkError;
+  String? _lastSubmittedLink;
+  bool _linkSheetAlreadyAutoOpened = false;
 
   @override
   void initState() {
@@ -60,10 +76,21 @@ class _SearchScreenState extends State<SearchScreen> {
 
   Future<void> _submit([String? rawQuery]) async {
     final normalized = (rawQuery ?? _ctrl.text).trim();
+
+    if (_isYoutubeUrl(normalized)) {
+      await _resolveLink(normalized);
+      return;
+    }
+
     setState(() {
       _query = normalized;
       _hasSubmitted = true;
       _errorMessage = null;
+      _resolvingLink = false;
+      _resolvedResult = null;
+      _resolvedLinkError = null;
+      _lastSubmittedLink = null;
+      _linkSheetAlreadyAutoOpened = false;
     });
 
     if (normalized.length < 2) {
@@ -103,6 +130,54 @@ class _SearchScreenState extends State<SearchScreen> {
             'No se pudo completar la busqueda. Revisa tu conexion e intentalo de nuevo.';
       });
     }
+  }
+
+  bool _isYoutubeUrl(String text) => _urlPattern.hasMatch(text);
+
+  bool get _isLinkBranchActive =>
+      _resolvingLink || _resolvedResult != null || _resolvedLinkError != null;
+
+  Future<void> _resolveLink(String trimmedUrl) async {
+    setState(() {
+      _query = trimmedUrl;
+      _hasSubmitted = true;
+      _resolvingLink = true;
+      _resolvedResult = null;
+      _resolvedLinkError = null;
+      _linkSheetAlreadyAutoOpened = false;
+      _lastSubmittedLink = trimmedUrl;
+      _loading = false;
+      _results = const [];
+      _errorMessage = null;
+      _lastSubmittedQuery = null;
+    });
+
+    try {
+      final result = await _linkResolverService.resolve(trimmedUrl);
+      if (!mounted) return;
+      setState(() {
+        _resolvingLink = false;
+        _resolvedResult = result;
+      });
+      _scheduleAutoOpen();
+    } on LinkResolutionException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _resolvingLink = false;
+        _resolvedLinkError = e.kind;
+      });
+    }
+  }
+
+  void _scheduleAutoOpen() {
+    if (_linkSheetAlreadyAutoOpened) return;
+    final result = _resolvedResult;
+    if (result == null) return;
+    _linkSheetAlreadyAutoOpened = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _openDownloadOptions(result);
+    });
   }
 
   void _setAndSubmit(String query) {
@@ -149,6 +224,11 @@ class _SearchScreenState extends State<SearchScreen> {
                 _loading = false;
                 _results = const [];
                 _errorMessage = null;
+                _resolvingLink = false;
+                _resolvedResult = null;
+                _resolvedLinkError = null;
+                _lastSubmittedLink = null;
+                _linkSheetAlreadyAutoOpened = false;
               });
             },
           ),
@@ -186,16 +266,26 @@ class _SearchScreenState extends State<SearchScreen> {
         ] else
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-            child: _SearchBody(
-              query: _query,
-              loading: _loading,
-              results: _results,
-              errorMessage: _errorMessage,
-              onResultTap: _openDownloadOptions,
-              onRetry: _lastSubmittedQuery == null
-                  ? null
-                  : () => _submit(_lastSubmittedQuery),
-            ),
+            child: _isLinkBranchActive
+                ? _ResolvedLinkBody(
+                    resolving: _resolvingLink,
+                    result: _resolvedResult,
+                    errorKind: _resolvedLinkError,
+                    onResultTap: _openDownloadOptions,
+                    onRetry: _lastSubmittedLink == null
+                        ? null
+                        : () => _resolveLink(_lastSubmittedLink!),
+                  )
+                : _SearchBody(
+                    query: _query,
+                    loading: _loading,
+                    results: _results,
+                    errorMessage: _errorMessage,
+                    onResultTap: _openDownloadOptions,
+                    onRetry: _lastSubmittedQuery == null
+                        ? null
+                        : () => _submit(_lastSubmittedQuery),
+                  ),
           ),
         const SizedBox(height: 24),
       ],
@@ -250,7 +340,7 @@ class _SearchField extends StatelessWidget {
               cursorColor: AppTokens.accent(),
               style: AppType.sans(size: 14.5),
               decoration: InputDecoration(
-                hintText: 'Buscar canciones, artistas o albumes',
+                hintText: 'Buscar o pegar enlace de YouTube',
                 hintStyle: AppType.sans(size: 14.5, color: AppTokens.dim2),
                 isDense: true,
                 contentPadding: EdgeInsets.zero,
@@ -339,6 +429,74 @@ class _SearchBody extends StatelessWidget {
           _RemoteResultRow(result: result, onTap: () => onResultTap(result)),
       ],
     );
+  }
+}
+
+class _ResolvedLinkBody extends StatelessWidget {
+  final bool resolving;
+  final RemoteSearchResult? result;
+  final LinkResolutionExceptionKind? errorKind;
+  final ValueChanged<RemoteSearchResult> onResultTap;
+  final VoidCallback? onRetry;
+
+  const _ResolvedLinkBody({
+    required this.resolving,
+    required this.result,
+    required this.errorKind,
+    required this.onResultTap,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (resolving) {
+      return const _StatePanel(
+        leading: LoadingBars(),
+        message: 'Resolviendo enlace...',
+      );
+    }
+    final kind = errorKind;
+    if (kind != null) {
+      return _buildError(kind);
+    }
+    final value = result;
+    if (value != null) {
+      return _RemoteResultRow(
+        result: value,
+        onTap: () => onResultTap(value),
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildError(LinkResolutionExceptionKind kind) {
+    switch (kind) {
+      case LinkResolutionExceptionKind.invalid:
+        return const _StatePanel(
+          icon: Icons.link_off,
+          message:
+              'El enlace no es válido. Pega un enlace de YouTube o YouTube Music.',
+        );
+      case LinkResolutionExceptionKind.playlistOnly:
+        return const _StatePanel(
+          icon: Icons.playlist_remove,
+          message:
+              'Las listas de reproducción aún no son compatibles. Pega el enlace de una canción.',
+        );
+      case LinkResolutionExceptionKind.network:
+        return _StatePanel(
+          icon: Icons.wifi_off,
+          message:
+              'No se pudo resolver el enlace. Revisa tu conexión e inténtalo de nuevo.',
+          actionLabel: 'Reintentar',
+          onAction: onRetry,
+        );
+      case LinkResolutionExceptionKind.unavailable:
+        return const _StatePanel(
+          icon: Icons.videocam_off,
+          message: 'El video no está disponible.',
+        );
+    }
   }
 }
 

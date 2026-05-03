@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:monolith/core/data/models.dart';
 import 'package:monolith/core/integrations/youtube/youtube_download_options_service.dart';
+import 'package:monolith/core/integrations/youtube/youtube_link_resolver_service.dart';
 import 'package:monolith/core/integrations/youtube/youtube_search_service.dart';
 import 'package:monolith/core/state/player_state.dart';
 import 'package:monolith/features/search/search_screen.dart';
@@ -351,6 +352,364 @@ void main() {
 
     expect(find.text('Tamaño no disponible'), findsOneWidget);
   });
+
+  testWidgets('hint text invites pasting a YouTube link', (tester) async {
+    final service = _FakeSearchService();
+    await _pumpSearch(tester, service);
+
+    expect(find.text('Buscar o pegar enlace de YouTube'), findsOneWidget);
+  });
+
+  testWidgets(
+    'pasting a YouTube URL shows resolving state and renders resolved row',
+    (tester) async {
+      final completer = Completer<RemoteSearchResult>();
+      final service = _FakeSearchService();
+      final linkResolver = _FakeLinkResolverService(
+        onResolve: (_) => completer.future,
+      );
+      await _pumpSearch(
+        tester,
+        service,
+        linkResolverService: linkResolver,
+      );
+
+      await tester.enterText(
+        find.byType(TextField),
+        'https://www.youtube.com/watch?v=abc123def45',
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pump();
+
+      expect(find.text('Resolviendo enlace...'), findsOneWidget);
+
+      completer.complete(_linkResult);
+      await tester.pumpAndSettle();
+
+      expect(find.text(_linkResult.title), findsAtLeastNWidgets(1));
+      expect(find.text(_linkResult.artist), findsAtLeastNWidgets(1));
+    },
+  );
+
+  testWidgets(
+    'pasting a YouTube URL auto-opens the download sheet exactly once',
+    (tester) async {
+      final downloadService = _FakeDownloadOptionsService(
+        results: const [_m4a128Option, _mp3Option],
+      );
+      final linkResolver = _FakeLinkResolverService();
+      await _pumpSearch(
+        tester,
+        _FakeSearchService(),
+        downloadOptionsService: downloadService,
+        linkResolverService: linkResolver,
+      );
+
+      await _submitLink(tester);
+
+      expect(find.text('Opciones de descarga'), findsOneWidget);
+      expect(downloadService.calls, [_linkResult.id]);
+      expect(linkResolver.calls, [_validUrl]);
+    },
+  );
+
+  testWidgets(
+    'closing the auto-opened sheet keeps the row and does not auto-reopen',
+    (tester) async {
+      final downloadService = _FakeDownloadOptionsService(
+        results: const [_m4a128Option, _mp3Option],
+      );
+      final linkResolver = _FakeLinkResolverService();
+      await _pumpSearch(
+        tester,
+        _FakeSearchService(),
+        downloadOptionsService: downloadService,
+        linkResolverService: linkResolver,
+      );
+
+      await _submitLink(tester);
+      expect(find.text('Opciones de descarga'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.close).first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Opciones de descarga'), findsNothing);
+      expect(find.text(_linkResult.title), findsOneWidget);
+      expect(downloadService.calls.length, 1);
+    },
+  );
+
+  testWidgets(
+    'tapping the resolved row after dismissing the sheet reopens it',
+    (tester) async {
+      final downloadService = _FakeDownloadOptionsService(
+        results: const [_m4a128Option, _mp3Option],
+      );
+      final linkResolver = _FakeLinkResolverService();
+      await _pumpSearch(
+        tester,
+        _FakeSearchService(),
+        downloadOptionsService: downloadService,
+        linkResolverService: linkResolver,
+      );
+
+      await _submitLink(tester);
+      await tester.tap(find.byIcon(Icons.close).first);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text(_linkResult.title));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Opciones de descarga'), findsOneWidget);
+      expect(downloadService.calls.length, 2);
+    },
+  );
+
+  testWidgets(
+    'submitting a different URL replaces the row and auto-opens again',
+    (tester) async {
+      const otherResult = RemoteSearchResult(
+        id: 'other',
+        title: 'Otra cancion',
+        artist: 'Otro canal',
+        sourceUrl: 'https://www.youtube.com/watch?v=other',
+      );
+      const otherUrl = 'https://www.youtube.com/watch?v=other';
+
+      final downloadService = _FakeDownloadOptionsService(
+        results: const [_m4a128Option, _mp3Option],
+      );
+      final linkResolver = _FakeLinkResolverService(
+        onResolve: (url) async =>
+            url == otherUrl ? otherResult : _linkResult,
+      );
+      await _pumpSearch(
+        tester,
+        _FakeSearchService(),
+        downloadOptionsService: downloadService,
+        linkResolverService: linkResolver,
+      );
+
+      await _submitLink(tester);
+      await tester.tap(find.byIcon(Icons.close).first);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), otherUrl);
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pumpAndSettle();
+
+      expect(find.text(otherResult.title), findsAtLeastNWidgets(1));
+      expect(find.text(_linkResult.title), findsNothing);
+      expect(find.text('Opciones de descarga'), findsOneWidget);
+      expect(linkResolver.calls, [_validUrl, otherUrl]);
+    },
+  );
+
+  testWidgets('playlist URL renders the playlist message and no sheet', (
+    tester,
+  ) async {
+    final downloadService = _FakeDownloadOptionsService();
+    final linkResolver = _FakeLinkResolverService(
+      onResolve: (_) async =>
+          throw const LinkResolutionException.playlistOnly(),
+    );
+    await _pumpSearch(
+      tester,
+      _FakeSearchService(),
+      downloadOptionsService: downloadService,
+      linkResolverService: linkResolver,
+    );
+
+    await tester.enterText(
+      find.byType(TextField),
+      'https://www.youtube.com/playlist?list=PLabcDEF12',
+    );
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'Las listas de reproducción aún no son compatibles. Pega el enlace de una canción.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Opciones de descarga'), findsNothing);
+    expect(downloadService.calls, isEmpty);
+  });
+
+  testWidgets('invalid resolver result renders the invalid message', (
+    tester,
+  ) async {
+    final downloadService = _FakeDownloadOptionsService();
+    final linkResolver = _FakeLinkResolverService(
+      onResolve: (_) async => throw const LinkResolutionException.invalid(),
+    );
+    await _pumpSearch(
+      tester,
+      _FakeSearchService(),
+      downloadOptionsService: downloadService,
+      linkResolverService: linkResolver,
+    );
+
+    await _submitLink(tester);
+
+    expect(
+      find.text(
+        'El enlace no es válido. Pega un enlace de YouTube o YouTube Music.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Opciones de descarga'), findsNothing);
+  });
+
+  testWidgets('network failure shows retry; tapping retry resolves once', (
+    tester,
+  ) async {
+    var calls = 0;
+    final downloadService = _FakeDownloadOptionsService(
+      results: const [_m4a128Option, _mp3Option],
+    );
+    final linkResolver = _FakeLinkResolverService(
+      onResolve: (_) async {
+        calls++;
+        if (calls == 1) {
+          throw LinkResolutionException.network(Exception('boom'));
+        }
+        return _linkResult;
+      },
+    );
+    await _pumpSearch(
+      tester,
+      _FakeSearchService(),
+      downloadOptionsService: downloadService,
+      linkResolverService: linkResolver,
+    );
+
+    await _submitLink(tester);
+
+    expect(
+      find.text(
+        'No se pudo resolver el enlace. Revisa tu conexión e inténtalo de nuevo.',
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Reintentar'));
+    await tester.pumpAndSettle();
+
+    expect(calls, 2);
+    expect(find.text(_linkResult.title), findsAtLeastNWidgets(1));
+    expect(find.text('Opciones de descarga'), findsOneWidget);
+  });
+
+  testWidgets('unavailable failure renders the unavailable message', (
+    tester,
+  ) async {
+    final downloadService = _FakeDownloadOptionsService();
+    final linkResolver = _FakeLinkResolverService(
+      onResolve: (_) async =>
+          throw LinkResolutionException.unavailable(Exception('private')),
+    );
+    await _pumpSearch(
+      tester,
+      _FakeSearchService(),
+      downloadOptionsService: downloadService,
+      linkResolverService: linkResolver,
+    );
+
+    await _submitLink(tester);
+
+    expect(find.text('El video no está disponible.'), findsOneWidget);
+    expect(find.text('Opciones de descarga'), findsNothing);
+  });
+
+  testWidgets('URL submit does not mutate recentSearches', (tester) async {
+    final state = PlayerState()..navigate(AppRoute.search);
+    final initialRecents = List<String>.of(state.recentSearches);
+    final downloadService = _FakeDownloadOptionsService(
+      results: const [_m4a128Option, _mp3Option],
+    );
+    final linkResolver = _FakeLinkResolverService();
+    await _pumpSearch(
+      tester,
+      _FakeSearchService(),
+      downloadOptionsService: downloadService,
+      linkResolverService: linkResolver,
+      state: state,
+    );
+
+    await _submitLink(tester);
+
+    expect(state.recentSearches, initialRecents);
+  });
+
+  testWidgets(
+    'submitting plain text after a URL clears the resolved row and runs text search',
+    (tester) async {
+      final state = PlayerState()..navigate(AppRoute.search);
+      final initialRecents = List<String>.of(state.recentSearches);
+      final searchService = _FakeSearchService(
+        results: const [
+          RemoteSearchResult(
+            id: 'tx',
+            title: 'Resultado de texto',
+            artist: 'Canal',
+            sourceUrl: 'https://www.youtube.com/watch?v=tx',
+          ),
+        ],
+      );
+      final downloadService = _FakeDownloadOptionsService(
+        results: const [_m4a128Option, _mp3Option],
+      );
+      final linkResolver = _FakeLinkResolverService();
+      await _pumpSearch(
+        tester,
+        searchService,
+        downloadOptionsService: downloadService,
+        linkResolverService: linkResolver,
+        state: state,
+      );
+
+      await _submitLink(tester);
+      await tester.tap(find.byIcon(Icons.close).first);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'consulta nueva');
+      await tester.testTextInput.receiveAction(TextInputAction.search);
+      await tester.pumpAndSettle();
+
+      expect(find.text(_linkResult.title), findsNothing);
+      expect(find.text('Resultado de texto'), findsOneWidget);
+      expect(searchService.calls, ['consulta nueva']);
+      expect(state.recentSearches.first, 'consulta nueva');
+      expect(state.recentSearches.length, initialRecents.length + 1);
+    },
+  );
+
+  testWidgets('clearing the field resets resolved row and error state', (
+    tester,
+  ) async {
+    final downloadService = _FakeDownloadOptionsService(
+      results: const [_m4a128Option, _mp3Option],
+    );
+    final linkResolver = _FakeLinkResolverService();
+    await _pumpSearch(
+      tester,
+      _FakeSearchService(),
+      downloadOptionsService: downloadService,
+      linkResolverService: linkResolver,
+    );
+
+    await _submitLink(tester);
+    await tester.tap(find.byIcon(Icons.close).first);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.close).last);
+    await tester.pumpAndSettle();
+
+    expect(find.text(_linkResult.title), findsNothing);
+    expect(find.text('Sugerencias'.toUpperCase()), findsOneWidget);
+  });
 }
 
 int serviceCallCount = 0;
@@ -361,6 +720,21 @@ const _remoteResult = RemoteSearchResult(
   artist: 'Canal',
   sourceUrl: 'https://www.youtube.com/watch?v=three',
 );
+
+const _validUrl = 'https://www.youtube.com/watch?v=abc123def45';
+
+const _linkResult = RemoteSearchResult(
+  id: 'abc123def45',
+  title: 'Cancion del enlace',
+  artist: 'Canal del enlace',
+  sourceUrl: _validUrl,
+);
+
+Future<void> _submitLink(WidgetTester tester) async {
+  await tester.enterText(find.byType(TextField), _validUrl);
+  await tester.testTextInput.receiveAction(TextInputAction.search);
+  await tester.pumpAndSettle();
+}
 
 const _m4a128Option = DownloadOption(
   id: 'three:M4A:128 kbps:140',
@@ -398,6 +772,7 @@ Future<void> _pumpSearch(
   WidgetTester tester,
   SearchSongsService service, {
   DownloadOptionsService? downloadOptionsService,
+  LinkResolverService? linkResolverService,
   PlayerState? state,
 }) {
   return tester.pumpWidget(
@@ -409,6 +784,7 @@ Future<void> _pumpSearch(
             searchService: service,
             downloadOptionsService:
                 downloadOptionsService ?? _FakeDownloadOptionsService(),
+            linkResolverService: linkResolverService,
           ),
         ),
       ),
@@ -458,5 +834,20 @@ class _FakeDownloadOptionsService implements DownloadOptionsService {
     final handler = onFetch;
     if (handler != null) return handler(result);
     return Future.value(results);
+  }
+}
+
+class _FakeLinkResolverService implements LinkResolverService {
+  final Future<RemoteSearchResult> Function(String url)? onResolve;
+  final calls = <String>[];
+
+  _FakeLinkResolverService({this.onResolve});
+
+  @override
+  Future<RemoteSearchResult> resolve(String rawUrl) {
+    calls.add(rawUrl);
+    final handler = onResolve;
+    if (handler != null) return handler(rawUrl);
+    return Future.value(_linkResult);
   }
 }
