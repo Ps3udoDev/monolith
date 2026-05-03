@@ -2,17 +2,24 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/data/models.dart';
+import '../../core/integrations/youtube/youtube_download_options_service.dart';
 import '../../core/integrations/youtube/youtube_search_service.dart';
 import '../../core/state/player_state.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
 import '../../core/utils/format.dart';
 import '../../shared/widgets/buttons.dart' as ab;
+import '../../shared/widgets/loading_bars.dart';
 
 class SearchScreen extends StatefulWidget {
   final SearchSongsService? searchService;
+  final DownloadOptionsService? downloadOptionsService;
 
-  const SearchScreen({super.key, this.searchService});
+  const SearchScreen({
+    super.key,
+    this.searchService,
+    this.downloadOptionsService,
+  });
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -24,6 +31,8 @@ class _SearchScreenState extends State<SearchScreen> {
 
   late final SearchSongsService _searchService =
       widget.searchService ?? const YoutubeSearchService();
+  late final DownloadOptionsService _downloadOptionsService =
+      widget.downloadOptionsService ?? const YoutubeDownloadOptionsService();
 
   String _query = '';
   bool _focused = false;
@@ -101,6 +110,20 @@ class _SearchScreenState extends State<SearchScreen> {
     _submit(query);
   }
 
+  Future<void> _openDownloadOptions(RemoteSearchResult result) {
+    return showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppTokens.bg,
+      barrierColor: Colors.black54,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _DownloadOptionsSheet(
+        result: result,
+        service: _downloadOptionsService,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final recents = context.watch<PlayerState>().recentSearches;
@@ -168,6 +191,7 @@ class _SearchScreenState extends State<SearchScreen> {
               loading: _loading,
               results: _results,
               errorMessage: _errorMessage,
+              onResultTap: _openDownloadOptions,
               onRetry: _lastSubmittedQuery == null
                   ? null
                   : () => _submit(_lastSubmittedQuery),
@@ -255,6 +279,7 @@ class _SearchBody extends StatelessWidget {
   final bool loading;
   final List<RemoteSearchResult> results;
   final String? errorMessage;
+  final ValueChanged<RemoteSearchResult> onResultTap;
   final VoidCallback? onRetry;
 
   const _SearchBody({
@@ -262,6 +287,7 @@ class _SearchBody extends StatelessWidget {
     required this.loading,
     required this.results,
     required this.errorMessage,
+    required this.onResultTap,
     required this.onRetry,
   });
 
@@ -276,7 +302,7 @@ class _SearchBody extends StatelessWidget {
 
     if (loading) {
       return const _StatePanel(
-        icon: Icons.graphic_eq,
+        leading: LoadingBars(),
         message: 'Buscando en YouTube Music...',
       );
     }
@@ -309,7 +335,8 @@ class _SearchBody extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 10),
-        for (final result in results) _RemoteResultRow(result: result),
+        for (final result in results)
+          _RemoteResultRow(result: result, onTap: () => onResultTap(result)),
       ],
     );
   }
@@ -317,8 +344,9 @@ class _SearchBody extends StatelessWidget {
 
 class _RemoteResultRow extends StatelessWidget {
   final RemoteSearchResult result;
+  final VoidCallback onTap;
 
-  const _RemoteResultRow({required this.result});
+  const _RemoteResultRow({required this.result, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -329,7 +357,7 @@ class _RemoteResultRow extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppTokens.radiusMd),
         child: InkWell(
           borderRadius: BorderRadius.circular(AppTokens.radiusMd),
-          onTap: () {},
+          onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.all(10),
             child: Row(
@@ -371,6 +399,353 @@ class _RemoteResultRow extends StatelessWidget {
   }
 }
 
+class _DownloadOptionsSheet extends StatefulWidget {
+  final RemoteSearchResult result;
+  final DownloadOptionsService service;
+
+  const _DownloadOptionsSheet({
+    required this.result,
+    required this.service,
+  });
+
+  @override
+  State<_DownloadOptionsSheet> createState() => _DownloadOptionsSheetState();
+}
+
+class _DownloadOptionsSheetState extends State<_DownloadOptionsSheet> {
+  RemoteSearchResult? activeDownloadResult;
+  bool downloadOptionsLoading = true;
+  List<DownloadOption> downloadOptions = const [];
+  String? downloadOptionsError;
+  String? selectedDownloadOptionId;
+  bool downloadPrepared = false;
+
+  @override
+  void initState() {
+    super.initState();
+    activeDownloadResult = widget.result;
+    _fetchOptions();
+  }
+
+  Future<void> _fetchOptions() async {
+    setState(() {
+      downloadOptionsLoading = true;
+      downloadOptionsError = null;
+      selectedDownloadOptionId = null;
+      downloadPrepared = false;
+    });
+
+    try {
+      final options = await widget.service.fetchOptions(widget.result);
+      if (!mounted) return;
+      setState(() {
+        downloadOptionsLoading = false;
+        downloadOptions = options;
+      });
+    } on DownloadOptionsException {
+      if (!mounted) return;
+      setState(() {
+        downloadOptionsLoading = false;
+        downloadOptions = const [];
+        downloadOptionsError =
+            'No se pudieron cargar las opciones. Revisa tu conexión e inténtalo de nuevo.';
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        downloadOptionsLoading = false;
+        downloadOptions = const [];
+        downloadOptionsError =
+            'No se pudieron cargar las opciones. Revisa tu conexión e inténtalo de nuevo.';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final realOptions = downloadOptions.where((option) => !option.disabled);
+    final selected = downloadOptions
+        .where((option) => option.id == selectedDownloadOptionId)
+        .firstOrNull;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 10, 16, 16 + bottomInset),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppTokens.surface3,
+                borderRadius: BorderRadius.circular(AppTokens.radiusPill),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Opciones de descarga',
+                  style: AppType.sans(size: 20, weight: FontWeight.w500),
+                ),
+              ),
+              ab.GhostButton(
+                size: 34,
+                onTap: () => Navigator.of(context).pop(),
+                child: const Icon(Icons.close, size: 18),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            widget.result.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppType.caption(),
+          ),
+          const SizedBox(height: 16),
+          if (downloadPrepared)
+            _PreparedPanel(option: selected)
+          else if (downloadOptionsLoading)
+            const _SheetStatePanel(
+              leading: LoadingBars(),
+              message: 'Buscando calidades disponibles...',
+            )
+          else if (downloadOptionsError != null)
+            _SheetStatePanel(
+              icon: Icons.wifi_off,
+              message: downloadOptionsError!,
+              actionLabel: 'Reintentar',
+              onAction: _fetchOptions,
+            )
+          else ...[
+            if (realOptions.isEmpty)
+              const _SheetStatePanel(
+                icon: Icons.music_off,
+                message: 'No hay opciones de audio disponibles para esta canción.',
+              )
+            else ...[
+              const _OptionLabelsRow(),
+              const SizedBox(height: 8),
+            ],
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final option in downloadOptions)
+                      _DownloadOptionRow(
+                        option: option,
+                        selected: option.id == selectedDownloadOptionId,
+                        onTap: option.disabled
+                            ? null
+                            : () => setState(
+                                  () => selectedDownloadOptionId = option.id,
+                                ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            ab.PrimaryButtonBlock(
+              label: 'Preparar descarga',
+              leading: Icons.download_done_outlined,
+              enabled: selectedDownloadOptionId != null,
+              onTap: () => setState(() => downloadPrepared = true),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _OptionLabelsRow extends StatelessWidget {
+  const _OptionLabelsRow();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(child: Text('Formato', style: AppType.sectionLabel())),
+        Expanded(child: Text('Calidad', style: AppType.sectionLabel())),
+        Expanded(
+          child: Text(
+            'Tamaño aproximado',
+            textAlign: TextAlign.right,
+            style: AppType.sectionLabel(),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _DownloadOptionRow extends StatelessWidget {
+  final DownloadOption option;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  const _DownloadOptionRow({
+    required this.option,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = AppTokens.accent();
+    final fg = option.disabled ? AppTokens.dim2 : AppTokens.fg;
+    final quality = option.quality?.label ?? '--';
+    final size = option.disabled ? option.disabledReason! : _formatSize(option);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Opacity(
+        opacity: option.disabled ? 0.48 : 1,
+        child: Material(
+          color: selected ? AppTokens.accentSoft() : AppTokens.surface1,
+          borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+            onTap: onTap,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppTokens.radiusMd),
+                border: Border.all(
+                  color: selected ? accent : AppTokens.hairline,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      option.format.label,
+                      style: AppType.sans(size: 14, color: fg),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      quality,
+                      style: AppType.mono(size: 12, color: fg),
+                    ),
+                  ),
+                  Expanded(
+                    child: Text(
+                      size,
+                      textAlign: TextAlign.right,
+                      style: AppType.mono(
+                        size: 12,
+                        color: selected ? accent : fg,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PreparedPanel extends StatelessWidget {
+  final DownloadOption? option;
+
+  const _PreparedPanel({required this.option});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppTokens.surface1,
+        borderRadius: BorderRadius.circular(AppTokens.radiusLg),
+        border: Border.all(color: AppTokens.accent()),
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.check_circle, color: AppTokens.accent(), size: 30),
+          const SizedBox(height: 12),
+          Text(
+            'Descarga preparada',
+            style: AppType.sans(size: 18, weight: FontWeight.w500),
+          ),
+          const SizedBox(height: 6),
+          if (option != null)
+            Text(
+              '${option!.format.label} · ${option!.quality!.label} · ${_formatSize(option!)}',
+              style: AppType.mono(size: 12, color: AppTokens.dim),
+            ),
+          const SizedBox(height: 8),
+          Text(
+            'La descarga local se completará en una historia posterior.',
+            textAlign: TextAlign.center,
+            style: AppType.body(color: AppTokens.dim),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SheetStatePanel extends StatelessWidget {
+  final IconData? icon;
+  final Widget? leading;
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  const _SheetStatePanel({
+    this.icon,
+    this.leading,
+    required this.message,
+    this.actionLabel,
+    this.onAction,
+  }) : assert(icon != null || leading != null,
+            'icon or leading must be provided');
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 28),
+      decoration: BoxDecoration(
+        color: AppTokens.surface1,
+        borderRadius: BorderRadius.circular(AppTokens.radiusLg),
+      ),
+      child: Column(
+        children: [
+          leading ?? Icon(icon, color: AppTokens.accent(), size: 26),
+          const SizedBox(height: 12),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: AppType.body(color: AppTokens.dim),
+          ),
+          if (actionLabel != null) ...[
+            const SizedBox(height: 16),
+            ab.PrimaryButton(
+              label: actionLabel!,
+              leading: Icons.refresh,
+              onTap: onAction,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _RemoteThumb extends StatelessWidget {
   final RemoteSearchResult result;
 
@@ -399,17 +774,20 @@ class _RemoteThumb extends StatelessWidget {
 }
 
 class _StatePanel extends StatelessWidget {
-  final IconData icon;
+  final IconData? icon;
+  final Widget? leading;
   final String message;
   final String? actionLabel;
   final VoidCallback? onAction;
 
   const _StatePanel({
-    required this.icon,
+    this.icon,
+    this.leading,
     required this.message,
     this.actionLabel,
     this.onAction,
-  });
+  }) : assert(icon != null || leading != null,
+            'icon or leading must be provided');
 
   @override
   Widget build(BuildContext context) {
@@ -422,7 +800,7 @@ class _StatePanel extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Icon(icon, color: AppTokens.accent(), size: 26),
+          leading ?? Icon(icon, color: AppTokens.accent(), size: 26),
           const SizedBox(height: 12),
           Text(
             message,
@@ -489,4 +867,10 @@ class _SectionLabel extends StatelessWidget {
 String _formatDuration(Duration? duration) {
   if (duration == null) return '--';
   return fmtDur(duration.inSeconds);
+}
+
+String _formatSize(DownloadOption option) {
+  final bytes = option.sizeBytes;
+  if (bytes == null) return 'Tamaño no disponible';
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
 }

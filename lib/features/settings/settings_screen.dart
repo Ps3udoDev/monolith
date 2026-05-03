@@ -13,11 +13,11 @@ class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
   static const _visualizers = [
-    (VizStyle.spectrum, 'Spectrum bars', 'Classic analyzer'),
-    (VizStyle.waveform, 'Waveform pulse', 'Track shape · beat-driven'),
-    (VizStyle.monolith, 'Monolith LEDs', 'Segmented towers'),
-    (VizStyle.gradient, 'Gradient rings', 'Radial color · concentric pulse'),
-    (VizStyle.oscilloscope, 'Oscilloscope', 'Electronic signal · glow'),
+    (VizStyle.spectrum, 'Spectrum bars', 'Analizador clásico'),
+    (VizStyle.waveform, 'Waveform pulse', 'Forma de la pista · sigue el ritmo'),
+    (VizStyle.monolith, 'Monolith LEDs', 'Torres segmentadas'),
+    (VizStyle.gradient, 'Gradient rings', 'Color radial · pulso concéntrico'),
+    (VizStyle.oscilloscope, 'Oscilloscope', 'Señal electrónica · resplandor'),
   ];
 
   static const _swatches = <(double, String)>[
@@ -47,9 +47,9 @@ class SettingsScreen extends StatelessWidget {
           ),
         ),
         const ScreenHeader(
-          eyebrow: 'Personalize · saved on device',
-          title: 'Settings',
-          subtitle: 'Tune how Monolith looks and behaves',
+          eyebrow: 'Personaliza · guardado en el dispositivo',
+          title: 'Ajustes',
+          subtitle: 'Configura la apariencia y el comportamiento de Monolith',
         ),
 
         // ── Live preview ──
@@ -87,12 +87,12 @@ class SettingsScreen extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('LIVE PREVIEW',
+                    Text('VISTA PREVIA',
                         style: AppType.mono(
                           size: 10, color: AppTokens.dim2, letterSpacing: 1,
                         )),
                     Text(
-                      '${_vizName(state.vizStyle).toUpperCase()} · ${state.variant.toUpperCase()}',
+                      '${_vizName(state.vizStyle).toUpperCase()} · ${_variantLabel(state.variant).toUpperCase()}',
                       style: AppType.mono(
                         size: 10, color: AppTokens.dim2, letterSpacing: 1,
                       ),
@@ -104,17 +104,17 @@ class SettingsScreen extends StatelessWidget {
           ),
         ),
 
-        // ── Visual direction (Safe / Bold) ──
+        // ── Visual direction (Sobrio / Audaz) ──
         _SettingGroup(
-          label: 'Visual direction',
-          hint: 'Presets that flip several knobs at once',
+          label: 'Dirección visual',
+          hint: 'Ajustes predefinidos que cambian varios parámetros a la vez',
           child: Row(
             children: [
               Expanded(
                 child: _VariantCard(
                   active: state.variant == 'safe',
-                  name: 'Safe',
-                  desc: 'Clean MD3 · grid library · linear waveform',
+                  name: 'Sobrio',
+                  desc: 'Material 3 limpio · biblioteca en cuadrícula · onda lineal',
                   onTap: () => state.setVariant('safe'),
                 ),
               ),
@@ -122,8 +122,8 @@ class SettingsScreen extends StatelessWidget {
               Expanded(
                 child: _VariantCard(
                   active: state.variant == 'bold',
-                  name: 'Bold',
-                  desc: 'Spectrum shelf · radial player · waveform-as-UI',
+                  name: 'Audaz',
+                  desc: 'Estante de espectro · reproductor radial · onda como UI',
                   onTap: () => state.setVariant('bold'),
                 ),
               ),
@@ -133,13 +133,13 @@ class SettingsScreen extends StatelessWidget {
 
         // ── Library ──
         _SettingGroup(
-          label: 'Library',
+          label: 'Biblioteca',
           child: _SettingRow(
-            title: 'Layout',
-            value: state.libraryGrid ? 'Grid' : 'Shelf',
+            title: 'Disposición',
+            value: state.libraryGrid ? 'Cuadrícula' : 'Repisa',
             child: _SegPicker(
               value: state.libraryGrid ? 'grid' : 'shelf',
-              options: const [('shelf', 'Shelf'), ('grid', 'Grid')],
+              options: const [('shelf', 'Repisa'), ('grid', 'Cuadrícula')],
               onChange: (v) => state.setLibraryGrid(v == 'grid'),
             ),
           ),
@@ -147,18 +147,18 @@ class SettingsScreen extends StatelessWidget {
 
         // ── Now playing ──
         _SettingGroup(
-          label: 'Now playing',
+          label: 'Reproducción',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _SettingRow(
-                title: 'Layout',
+                title: 'Disposición',
                 value: state.nowPlayingRadial
                     ? 'Radial · circular'
-                    : 'Linear · stacked',
+                    : 'Lineal · apilada',
                 child: _SegPicker(
                   value: state.nowPlayingRadial ? 'radial' : 'linear',
-                  options: const [('linear', 'Linear'), ('radial', 'Radial')],
+                  options: const [('linear', 'Lineal'), ('radial', 'Radial')],
                   onChange: (v) =>
                       state.setNowPlayingRadial(v == 'radial'),
                 ),
@@ -166,7 +166,7 @@ class SettingsScreen extends StatelessWidget {
               const SizedBox(height: 14),
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: Text('Visualizer',
+                child: Text('Visualizador',
                     style: AppType.sans(size: 13, color: AppTokens.fg)),
               ),
               for (final v in _visualizers)
@@ -187,7 +187,7 @@ class SettingsScreen extends StatelessWidget {
 
         // ── Accent color ──
         _SettingGroup(
-          label: 'Accent color',
+          label: 'Color de acento',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -212,7 +212,7 @@ class SettingsScreen extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('CUSTOM HUE',
+                  Text('TONO PERSONALIZADO',
                       style: AppType.mono(
                         size: 11, color: AppTokens.dim, letterSpacing: 0.4,
                       )),
@@ -233,18 +233,18 @@ class SettingsScreen extends StatelessWidget {
 
         // ── Storage ──
         _SettingGroup(
-          label: 'Storage',
+          label: 'Almacenamiento',
           child: Column(
             children: [
               _AboutRow(
-                label: 'Library',
+                label: 'Biblioteca',
                 value:
-                    '${kLibrary.length} tracks · ${totalSize.toStringAsFixed(1)} MB',
+                    '${kLibrary.length} canciones · ${totalSize.toStringAsFixed(1)} MB',
               ),
               const SizedBox(height: 6),
-              const _AboutRow(label: 'Mode', value: '100% on device'),
+              const _AboutRow(label: 'Modo', value: '100% en el dispositivo'),
               const SizedBox(height: 6),
-              const _AboutRow(label: 'Network', value: 'only when downloading'),
+              const _AboutRow(label: 'Red', value: 'solo al descargar'),
             ],
           ),
         ),
@@ -270,6 +270,12 @@ class SettingsScreen extends StatelessWidget {
         VizStyle.monolith => 'monolith',
         VizStyle.gradient => 'gradient',
         VizStyle.oscilloscope => 'oscilloscope',
+      };
+
+  static String _variantLabel(String key) => switch (key) {
+        'safe' => 'Sobrio',
+        'bold' => 'Audaz',
+        _ => key,
       };
 }
 

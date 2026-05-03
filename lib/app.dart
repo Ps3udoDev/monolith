@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'core/data/settings_repository.dart';
 import 'core/state/player_state.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/tokens.dart';
@@ -17,12 +18,22 @@ import 'shared/widgets/bottom_nav.dart';
 import 'shared/widgets/mini_player.dart';
 
 class MonolithApp extends StatelessWidget {
-  const MonolithApp({super.key});
+  final SettingsRepository settingsRepository;
+  final SettingsSnapshot initialSettings;
+
+  const MonolithApp({
+    super.key,
+    required this.settingsRepository,
+    required this.initialSettings,
+  });
 
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      create: (_) => PlayerState(),
+      create: (_) => PlayerState(
+        initialSettings: initialSettings,
+        settingsRepository: settingsRepository,
+      ),
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
         title: 'Monolith',

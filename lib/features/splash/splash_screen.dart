@@ -251,10 +251,8 @@ class _SplashBarsPainter extends CustomPainter {
     final gap = size.width / bins;
     final w = gap * 0.42;
     final tt = t.clamp(0.0, 1.0);
-
-    // Eruption envelope: bars grow 0..0.35, then decay back toward idle 0.35..1.0
-    final erupt = math.pow(math.sin(math.pi * (tt / 0.7).clamp(0.0, 1.0)), 2).toDouble();
     final time = tt * 6.28;
+    final paint = Paint()..color = accent;
 
     for (var i = 0; i < bins; i++) {
       final freq = (i - bins / 2).abs() / (bins / 2);
@@ -263,14 +261,10 @@ class _SplashBarsPainter extends CustomPainter {
       // amplitude shape: tallest at center, decaying outward + live mid
       final live = (1 - freq) * (0.35 + 0.65 * mid);
       final idle = 0.06 + 0.04 * math.sin(time * 0.6 + i * 0.3);
-      final v = idle + erupt * (live + s * 0.15) * 0.95;
+      final v = idle + (live + s * 0.15) * 0.95;
       final h = math.max(2.0, math.min(1.0, v) * size.height * 0.95);
       final x = i * gap + (gap - w) / 2;
       final y = size.height / 2 - h / 2;
-      // played fraction = current accent reach mirrored from center
-      final dist = (i - bins / 2).abs() / (bins / 2);
-      final played = dist <= erupt;
-      final paint = Paint()..color = played ? accent : const Color(0x33FFFFFF);
       canvas.drawRRect(
         RRect.fromRectAndRadius(Rect.fromLTWH(x, y, w, h), Radius.circular(w / 2)),
         paint,
