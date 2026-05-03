@@ -79,3 +79,48 @@ class RemoteSearchResult {
     this.thumbnailUrl,
   });
 }
+
+enum DownloadFormat {
+  m4a('M4A'),
+  opus('Opus'),
+  mp3('MP3');
+
+  final String label;
+  const DownloadFormat(this.label);
+}
+
+enum DownloadQuality {
+  kbps128('128 kbps', 128),
+  kbps256('256 kbps', 256),
+  kbps320('320 kbps', 320);
+
+  final String label;
+  final int targetKbps;
+  const DownloadQuality(this.label, this.targetKbps);
+}
+
+class DownloadOption {
+  final String id;
+  final String videoId;
+  final String sourceUrl;
+  final DownloadFormat format;
+  final DownloadQuality? quality;
+  final int? bitrateKbps;
+  final int? sizeBytes;
+  final int? streamTag;
+  final bool disabled;
+  final String? disabledReason;
+
+  const DownloadOption({
+    required this.id,
+    required this.videoId,
+    required this.sourceUrl,
+    required this.format,
+    required this.disabled,
+    this.quality,
+    this.bitrateKbps,
+    this.sizeBytes,
+    this.streamTag,
+    this.disabledReason,
+  });
+}

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../data/models.dart';
 import '../data/seed_data.dart';
+import '../data/settings_repository.dart';
 import '../theme/tokens.dart';
 import '../../shared/widgets/visualizer.dart';
 
@@ -22,16 +23,28 @@ class PlayerState extends ChangeNotifier {
   String? artistName;
   List<String> recentSearches = ['Pendant', 'Ambient', 'Brume'];
 
-  // ── User-configurable settings (in-memory; not persisted yet) ──
-  String variant = 'bold';
-  bool libraryGrid = false;
-  bool nowPlayingRadial = true;
-  VizStyle vizStyle = VizStyle.spectrum;
-  double accentHue = AppTokens.accentHueDefault;
+  // ── User-configurable settings (persisted via SettingsRepository) ──
+  late String variant;
+  late bool libraryGrid;
+  late bool nowPlayingRadial;
+  late VizStyle vizStyle;
+  late double accentHue;
+
+  final SettingsRepository _settingsRepo;
 
   Timer? _ticker;
 
-  PlayerState() {
+  PlayerState({
+    SettingsSnapshot? initialSettings,
+    SettingsRepository? settingsRepository,
+  }) : _settingsRepo = settingsRepository ?? InMemorySettingsRepository() {
+    final snapshot = initialSettings ?? SettingsSnapshot.defaults;
+    variant = snapshot.variant;
+    libraryGrid = snapshot.libraryGrid;
+    nowPlayingRadial = snapshot.nowPlayingRadial;
+    vizStyle = snapshot.vizStyle;
+    accentHue = snapshot.accentHue;
+    AppTokens.accentHueValue = snapshot.accentHue;
     _restartTickerIfNeeded();
   }
 
@@ -151,28 +164,47 @@ class PlayerState extends ChangeNotifier {
       libraryGrid = false;
       nowPlayingRadial = true;
     }
+    _persistSettings();
     notifyListeners();
   }
 
   void setLibraryGrid(bool v) {
     libraryGrid = v;
+    _persistSettings();
     notifyListeners();
   }
 
   void setNowPlayingRadial(bool v) {
     nowPlayingRadial = v;
+    _persistSettings();
     notifyListeners();
   }
 
   void setVizStyle(VizStyle s) {
     vizStyle = s;
+    _persistSettings();
     notifyListeners();
   }
 
   void setAccentHue(double h) {
     accentHue = h;
     AppTokens.accentHueValue = h;
+    _persistSettings();
     notifyListeners();
+  }
+
+  void _persistSettings() {
+    unawaited(
+      _settingsRepo.save(
+        SettingsSnapshot(
+          variant: variant,
+          libraryGrid: libraryGrid,
+          nowPlayingRadial: nowPlayingRadial,
+          vizStyle: vizStyle,
+          accentHue: accentHue,
+        ),
+      ),
+    );
   }
 
   void _restartTickerIfNeeded() {
